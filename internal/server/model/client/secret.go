@@ -1,6 +1,9 @@
 package client
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 type ISecret interface {
 	String() string
@@ -22,4 +25,34 @@ func Encode(s ISecret) ([]byte, error) {
 		Kind: s.Kind(),
 		Data: data,
 	})
+}
+
+func Decode(data []byte) (ISecret, error) {
+	var s secret
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, err
+	}
+
+	if s.Kind == 1 {
+		var bin Bin
+		if err := json.Unmarshal(s.Data, &bin); err != nil {
+			return nil, err
+		}
+		return bin, nil
+	} else if s.Kind == 2 {
+		var cred Credential
+		if err := json.Unmarshal(s.Data, &cred); err != nil {
+			return nil, err
+		}
+		return cred, nil
+
+	} else if s.Kind == 3 {
+		var card Card
+		if err := json.Unmarshal(s.Data, &card); err != nil {
+			return nil, err
+		}
+		return card, nil
+	} else {
+		return nil, errors.New("unknown secret")
+	}
 }
