@@ -6,11 +6,12 @@ import (
 	"github.com/kirillmashkov/GophKeeper.git/internal/util"
 	"github.com/kirillmashkov/GophKeeper.git/pkg/hasher"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type IUserRepository interface {
 	PutUser(ctx context.Context, email string, passwordHash string) (string, error)
-	GetUser(ctx context.Context, email string, password_hash string) (string, error)
+	GetUser(ctx context.Context, email string) (string, string, error)
 }
 
 type AuthService struct {
@@ -48,16 +49,15 @@ func (a *AuthService) SignUp(ctx context.Context, email string, password string)
 }
 
 func (a *AuthService) SignIn(ctx context.Context, email string, password string) (bool, string, error) {
-	hash, err := hasher.Hash(password)
-
+	userID, password_hash, err := a.userRepository.GetUser(ctx, email)
 	if err != nil {
-		a.logger.Error("error generated hash", zap.Error(err))
+		a.logger.Error("error get user", zap.String("email", email))
 		return false, "", err
 	}
 
-	userID, err := a.userRepository.GetUser(ctx, email, hash)
+	err = bcrypt.CompareHashAndPassword([]byte(password_hash), []byte(password))
 	if err != nil {
-		a.logger.Error("error get user %s", zap.String("email", email))
+		a.logger.Error("error verify user", zap.String("email", email))
 		return false, "", err
 	}
 

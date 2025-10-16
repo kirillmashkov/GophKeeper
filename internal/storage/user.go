@@ -65,20 +65,21 @@ func (s *UserRepository) PutUser(ctx context.Context, email string, passwordHash
 }
 
 // GetUser возвращает ID пользователя с указанными учетными данными
-func (s *UserRepository) GetUser(ctx context.Context, email string, password_hash string) (string, error) {
+func (s *UserRepository) GetUser(ctx context.Context, email string) (string, string, error) {
 	var id string
-	err := s.db.Dbpool.QueryRow(ctx, "SELECT user_id FROM users WHERE email = ($1) AND password_hash = ($2)", email, password_hash).Scan(&id)
+	var password_hash string
+	err := s.db.Dbpool.QueryRow(ctx, "SELECT user_id, password_hash FROM users WHERE email = $1", email).Scan(&id, &password_hash)
 
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
 			if pgErr.Code == pgerrcode.NoData {
 				s.log.Error("no user found %s", zap.String("user email", email))
-				return "", model.ErrUserNotFound
+				return "", "", model.ErrUserNotFound
 			}
 		}
 	}
 
-	return id, err
+	return id, password_hash, err
 }
 
