@@ -13,7 +13,7 @@ import (
 
 type mockUserRepo struct {
 	PutUserFunc func(ctx context.Context, email string, passwordHash string) (string, error)
-	GetUserFunc func(ctx context.Context, email string, passwordHash string) (string, error)
+	GetUserFunc func(ctx context.Context, email string) (string, string, error)
 }
 
 func (m *mockUserRepo) PutUser(ctx context.Context, email string, passwordHash string) (string, error) {
@@ -23,11 +23,11 @@ func (m *mockUserRepo) PutUser(ctx context.Context, email string, passwordHash s
 	return "", nil
 }
 
-func (m *mockUserRepo) GetUser(ctx context.Context, email string, passwordHash string) (string, error) {
+func (m *mockUserRepo) GetUser(ctx context.Context, email string) (string, string, error) {
 	if m.GetUserFunc != nil {
-		return m.GetUserFunc(ctx, email, passwordHash)
+		return m.GetUserFunc(ctx, email)
 	}
-	return "", nil
+	return "", "", nil
 }
 
 func TestAuthService_SignUp_Success(t *testing.T) {
@@ -96,14 +96,11 @@ func TestAuthService_SignIn_Success(t *testing.T) {
 		t.Fatalf("unexpected hash error: %v", err)
 	}
 
-	repo := &mockUserRepo{GetUserFunc: func(ctx context.Context, e string, h string) (string, error) {
+	repo := &mockUserRepo{GetUserFunc: func(ctx context.Context, e string) (string, string, error) {
 		if e != email {
 			t.Fatalf("unexpected email: got %s want %s", e, email)
 		}
-		if h != expectedHash {
-			t.Fatalf("unexpected hash: got %s want %s", h, expectedHash)
-		}
-		return "user-123", nil
+		return "user-123", expectedHash, nil
 	}}
 
 	su := util.NewSecurityUtil(time.Hour, "test-secret-key")
@@ -127,8 +124,8 @@ func TestAuthService_SignIn_GetUserError(t *testing.T) {
 	email := "user@example.com"
 	password := "p@ssw0rd"
 
-	repo := &mockUserRepo{GetUserFunc: func(ctx context.Context, e string, h string) (string, error) {
-		return "", errors.New("not found")
+	repo := &mockUserRepo{GetUserFunc: func(ctx context.Context, e string) (string, string, error) {
+		return "", "", errors.New("not found")
 	}}
 
 	su := util.NewSecurityUtil(time.Hour, "test-secret-key")
