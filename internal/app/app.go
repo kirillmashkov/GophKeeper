@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"log"
 	"time"
 
@@ -9,54 +10,118 @@ import (
 	"github.com/kirillmashkov/GophKeeper.git/internal/server/service"
 	"github.com/kirillmashkov/GophKeeper.git/internal/storage"
 	"github.com/kirillmashkov/GophKeeper.git/internal/util"
+	"go.uber.org/fx"
 	"go.uber.org/zap"
 )
 
-var Logger *zap.Logger
-var Config config.Config
-var Database *storage.Database
-var AuthService *service.AuthService
-var SecretService *service.SecretService
-var SecurityUtil *util.SecurityUtil
+// Backward-compatible globals (populated by fx on startup)
+var (
+	Logger        *zap.Logger
+	Config        config.Config
+	Database      *storage.Database
+	AuthService   *service.AuthService
+	SecretService *service.SecretService
+	SecurityUtil  *util.SecurityUtil
+)
 
-const tokenExp = time.Hour * 3
-const SecretKey = "supersecretkeysupersecretkeysupersecretkeysupersecretkeysupersecretkey"
+const (
+	tokenExp  = time.Hour * 3
+	SecretKey = "supersecretkeysupersecretkeysupersecretkeysupersecretkeysupersecretkey"
+)
 
+var fxApp *fx.App
+
+// Initialize builds the dependency graph using Uber FX and starts the app lifecycle.
+// It preserves the original behavior by exposing the same globals and function signature.
 func Initialize() error {
-	var err error
+	fxApp = fx.New(
+		fx.Provide(
+			// Core
+			logger.Initialize,
+			provideConfig,
+			storage.NewDatabase,
+			provideSecurityUtil,
 
-	Logger, err = logger.Initialize()
+			// Repositories (explicit wrappers to bind to service interfaces)
+			func(db *storage.Database, l *zap.Logger) service.IUserRepository {
+				return storage.NewUserRepository(db, l)
+			},
+			func(db *storage.Database, l *zap.Logger) service.ISecretRepository {
+				return storage.NewSecretRepository(db, l)
+			},
 
-	if err != nil {
+			// Services
+			service.NewAuthService,
+			service.NewSecretService,
+		),
+		fx.Invoke(
+			openAndMigrateDB,
+			populateGlobals,
+		),
+	)
+
+	if err := fxApp.Start(context.Background()); err != nil {
+		// Fallback to std logger on very early initialization errors
 		log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 		log.SetPrefix("ERROR: ")
-		log.Printf("Can't init logger %v", err)
+		log.Printf("Can't start fx app: %v", err)
 		return err
 	}
-
-	Config = config.InitConfig(Logger)
-
-	Database = storage.NewDatabase(&Config, Logger)
-	err = Database.Open()
-	if err != nil {
-		Logger.Error("error open database", zap.Error(err))
-		return err
-	}
-
-	if err = Database.Migrate(); err != nil {
-		return err
-	}
-
-	SecurityUtil = util.NewSecurityUtil(tokenExp, SecretKey)
-	userStorage := storage.NewUserRepository(Database, Logger)
-	secretRepository := storage.NewSecretRepository(Database, Logger)
-	
-	AuthService = service.NewAuthService(userStorage, Logger, SecurityUtil)
-	SecretService = service.NewSecretService(secretRepository, Logger)
-
 	return nil
 }
 
+// Close gracefully stops the fx application and releases resources.
 func Close() {
-	Database.Close()
+	if fxApp != nil {
+		_ = fxApp.Stop(context.Background())
+	}
+}
+
+// provideConfig adapts Config initialization for fx and returns a pointer
+// because many constructors expect *config.Config.
+func provideConfig(l *zap.Logger) *config.Config {
+	c := config.InitConfig(l)
+	return &c
+}
+
+func provideSecurityUtil() *util.SecurityUtil {
+	return util.NewSecurityUtil(tokenExp, SecretKey)
+}
+
+// openAndMigrateDB wires DB lifecycle with fx and runs migrations on start.
+func openAndMigrateDB(lc fx.Lifecycle, db *storage.Database, l *zap.Logger) {
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			if err := db.Open(); err != nil {
+				l.Error("error open database", zap.Error(err))
+				return err
+			}
+			if err := db.Migrate(); err != nil {
+				return err
+			}
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			db.Close()
+			return nil
+		},
+	})
+}
+
+// populateGlobals keeps backward compatibility for the rest of the codebase
+// that directly references app package globals.
+func populateGlobals(
+	l *zap.Logger,
+	cfg *config.Config,
+	db *storage.Database,
+	auth *service.AuthService,
+	secret *service.SecretService,
+	su *util.SecurityUtil,
+) {
+	Logger = l
+	Config = *cfg
+	Database = db
+	AuthService = auth
+	SecretService = secret
+	SecurityUtil = su
 }
