@@ -1,11 +1,8 @@
 package cmd
 
 import (
-	"encoding/base64"
 	"log"
-	"os"
 
-	"github.com/kirillmashkov/GophKeeper.git/internal/server/model"
 	"github.com/kirillmashkov/GophKeeper.git/internal/server/model/client"
 	"github.com/spf13/cobra"
 )
@@ -15,77 +12,22 @@ var createCardCmd = &cobra.Command{
 	Use:   "card",
 	Short: "create card secret",
 	Run: func(cmd *cobra.Command, args []string) {
-		name, err := cmd.Flags().GetString("name")
-		if err != nil {
-			log.Fatal("error read secret name")
-		}
+		name := mustGetStringFlag(cmd, "name", "error read secret name")
+		number := mustGetStringFlag(cmd, "number", "error read number card for secret")
+		expiry := mustGetStringFlag(cmd, "expiry", "error read expiry card for secret")
+		cvc := mustGetStringFlag(cmd, "cvc", "error read cvc card for secret")
+		holder := mustGetStringFlag(cmd, "holder", "error read holder card for secret")
 
-		number, err := cmd.Flags().GetString("number")
-		if err != nil {
-			log.Fatal("error read number card for secret")
-		}
+		metaData := readMetadata(cmd)
 
-		expiry, err := cmd.Flags().GetString("expiry")
-		if err != nil {
-			log.Fatal("error read expiry card for secret")
-		}
-
-		cvc, err := cmd.Flags().GetString("cvc")
-		if err != nil {
-			log.Fatal("error read cvc card for secret")
-		}
-
-		holder, err := cmd.Flags().GetString("holder")
-		if err != nil {
-			log.Fatal("error read holder card for secret")
-		}
-
-		metaDataFile, err := cmd.Flags().GetString("metadata")
-		if err != nil {
-			log.Fatal("error read metadata file for secret")
-		}
-
-		metaData, err := os.ReadFile(metaDataFile)
-		if err != nil {
-			log.Fatal("error read metadata file")
-		}
-
-		card := client.Card {
+		card := client.Card{
 			Holder: holder,
-			Cvc: cvc,
+			Cvc:    cvc,
 			Expiry: expiry,
 			Number: number,
 		}
 
-			secret, err := client.Encode(card)
-			if err != nil {
-				log.Fatal("error create requet when create card secret")
-			}
-
-			dataEncoded := base64.StdEncoding.EncodeToString(secret)
-			metaDataEncoded := base64.StdEncoding.EncodeToString(metaData)
-
-			req := model.CreateSecretRequest {
-				Name: name,
-				Kind: card.Kind(),
-				Data: dataEncoded,
-				Metadata: metaDataEncoded,
-			}
-
-			r, err := keeperClient.R().SetHeader("Authorization", tokenStr).SetBody(req).Post(addr + "/api/createsecret")
-
-			if err != nil {
-				log.Fatalf("error create card secret %s", name)
-			}
-
-			if r.StatusCode() == 409 {
-				log.Printf("card secret %s already exist", name)	
-			} else if r.StatusCode() == 201 {
-				log.Printf("create card secret %s", name)
-			} else {
-				log.Fatalf("error create card secret %s", name)
-			}
-
+		createSecret(name, card, metaData, "card")
 	},
 }
 
